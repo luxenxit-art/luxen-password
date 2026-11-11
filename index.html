@@ -110,13 +110,13 @@
     text-transform: uppercase;
   }
 
-  /* خانة وضع الصيانة الجميلة */
+  /* خانات وضع الصيانة المنفصلة */
   .maintenance-box {
     background: rgba(2, 5, 12, 0.8);
     border: 1px solid var(--card-border);
     border-radius: 14px;
     padding: 12px 16px;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -129,6 +129,7 @@
     align-items: center;
     gap: 6px;
   }
+  
   /* سويتش الصيانة */
   .switch {
     position: relative;
@@ -296,13 +297,23 @@
     </div>
   </div>
 
-  <!-- زر تفعيل وضع الصيانة الجميل -->
+  <!-- أزرار تحكم وضع الصيانة المستقلة (مطابقة تماماً لمواقعك العادية ومواقع الموزعين) -->
   <div class="maintenance-box">
     <div class="maintenance-title">
-      <span>🚨 وضع الصيانة العام</span>
+      <span>🛠️ صيانة موقع العملاء (Client)</span>
     </div>
     <label class="switch">
-      <input type="checkbox" id="maintToggle" onchange="toggleMaintenanceState()">
+      <input type="checkbox" id="maintClientToggle" onchange="toggleMaintenanceState('client')">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="maintenance-box">
+    <div class="maintenance-title">
+      <span>🛡️ صيانة موقع الموزعين (Reseller)</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="maintResellerToggle" onchange="toggleMaintenanceState('reseller')">
       <span class="slider"></span>
     </label>
   </div>
@@ -411,7 +422,7 @@
     } catch (e) { return null; }
   }
 
-  // جلب الإحصائيات وحالة الصيانة عند فتح الصفحة
+  // جلب الإحصائيات وحالة الصيانة المنفصلة عند فتح الصفحة
   async function initMasterControl() {
     try {
       const token = await getAuthToken();
@@ -427,9 +438,14 @@
         document.getElementById('totalResellersStat').textContent = resellersCount;
         document.getElementById('totalKeysStat').textContent = keysCount;
 
-        // حالة الصيانة الحالية
-        if (db.maintenance && db.maintenance.active === true) {
-          document.getElementById('maintToggle').checked = true;
+        // قراءة حالة الصيانة المنفصلة (client و reseller) المطابقة لقواعدك
+        if (db.settings && db.settings.maintenance) {
+          if (db.settings.maintenance.client === true) {
+            document.getElementById('maintClientToggle').checked = true;
+          }
+          if (db.settings.maintenance.reseller === true) {
+            document.getElementById('maintResellerToggle').checked = true;
+          }
         }
       }
     } catch (e) {
@@ -437,16 +453,26 @@
     }
   }
 
-  // تفعيل أو إيقاف وضع الصيانة من الزر المباشر
-  async function toggleMaintenanceState() {
-    const isChecked = document.getElementById('maintToggle').checked;
+  // تفعيل أو إيقاف وضع الصيانة المنفصل (client أو reseller)
+  async function toggleMaintenanceState(type) {
+    const isChecked = document.getElementById(type === 'client' ? 'maintClientToggle' : 'maintResellerToggle').checked;
     try {
       const token = await getAuthToken();
-      await fetch(`${FIREBASE_URL}maintenance.json?auth=${token}`, {
+      
+      // جلب الكائن الحالي للصيانة أولاً لكي لا نحذف أحدهما عند تعديل الآخر
+      const getRes = await fetch(`${FIREBASE_URL}settings/maintenance.json?auth=${token}`);
+      let currentMaint = await getRes.json() || { client: false, reseller: false };
+      
+      currentMaint[type] = isChecked;
+
+      // تحديث مسار الصيانة في Firebase بالشكل المتوافق مع مواقعك
+      await fetch(`${FIREBASE_URL}settings/maintenance.json?auth=${token}`, {
         method: 'PUT',
-        body: JSON.stringify({ active: isChecked })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentMaint)
       });
-      showMsg(isChecked ? '🚨 تم تفعيل وضع الصيانة بنجاح!' : '✅ تم إيقاف وضع الصيانة!', isChecked ? 'var(--danger-red)' : 'var(--success-green)');
+
+      showMsg(isChecked ? `🚨 تم تفعيل صيانة (${type}) بنجاح!` : `✅ تم إيقاف صيانة (${type})!`, isChecked ? 'var(--danger-red)' : 'var(--success-green)');
     } catch (e) {
       showMsg('❌ خطأ في تغيير وضع الصيانة', 'var(--danger-red)', true);
     }
@@ -480,7 +506,7 @@
 
       const res = await fetch(`${FIREBASE_URL}settings/admin_pass.json?auth=${token}`);
       let currentPass = await res.json();
-      if (!currentPass) currentPass = "Dhia";
+      if (!currentPass) currentPass = "21447348";
 
       if (oldInput !== currentPass) {
         setLoading(false);
@@ -488,15 +514,17 @@
         return;
       }
 
-      // 1. تحديث كلمة المرور الجديدة
+      // 1. تحديث كلمة المرور الجديدة في المسار المخصص
       await fetch(`${FIREBASE_URL}settings/admin_pass.json?auth=${token}`, {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newInput)
       });
 
       // 2. إرسال أمر الطرد الفوري لجميع الجلسات المفتوحة للأدمن
       await fetch(`${FIREBASE_URL}settings/password_changed_at.json?auth=${token}`, {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Date.now())
       });
 
